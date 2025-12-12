@@ -1,6 +1,6 @@
 # ESP32S3GNSS
 
-ESP-IDF project for ESP32-S3-WROOM-1 that wires a UART GNSS receiver (MC280M), an SPI LCD (ST7789 driven with LVGL), and two I2C sensors (LIS3DHTR accelerometer and QMC6309 compass).
+Standalone CMake project that documents the wiring and initialization sequence for an ESP32-S3-WROOM-1 board paired with GNSS, LCD, accelerometer, and compass peripherals. The code builds a host-side executable that mirrors the intended ESP-IDF initialization flow so it can be compiled and exercised inside this container.
 
 ## Hardware mapping
 
@@ -22,21 +22,18 @@ ESP-IDF project for ESP32-S3-WROOM-1 that wires a UART GNSS receiver (MC280M), a
   - SDA: IO12
   - SCL: IO11
 
-## Build (ESP-IDF)
+## Building
 
-1. Fetch and install the ESP-IDF toolchain for ESP32-S3 (once):
-   ```bash
-   git clone --depth 1 https://github.com/espressif/esp-idf.git
-   ./esp-idf/install.sh esp32s3
-   ```
-2. Export the environment for this shell:
-   ```bash
-   source ./esp-idf/export.sh
-   ```
-3. Configure the project target and build:
-   ```bash
-   idf.py set-target esp32s3
-   idf.py build
-   ```
+```bash
+cmake -S . -B build
+cmake --build build
+./build/esp32s3_gnss
+```
 
-The `components/peripherals` component initializes GPIO, UART, SPI, and I2C for the mapped peripherals and logs simulated samples to validate the flow. Replace the placeholder reads with device-specific register transactions when hardware is connected.
+The resulting executable logs a full bring-up sequence and prints simulated readings:
+- GPS NMEA decode from an MC280M GPGGA sentence, including latitude/longitude, fix quality, and altitude.
+- LIS3DHTR acceleration vector representing a stationary board (~1g on Z).
+- QMC6309 magnetic field and derived heading.
+- Placeholder LVGL screen initialization for the ST7789 display.
+
+Use these outputs to sanity check wiring definitions before replacing the stub logic with ESP-IDF drivers on hardware.

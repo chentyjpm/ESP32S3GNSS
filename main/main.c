@@ -1,4 +1,6 @@
-#include "esp_log.h"
+#include <stdio.h>
+#include "platform_defs.h"
+#include "hardware_config.h"
 #include "gps_uart.h"
 #include "i2c_sensors.h"
 #include "lcd_display.h"
@@ -58,21 +60,22 @@ static esp_err_t capture_sensor_snapshot(void) {
     return ESP_OK;
 }
 
-void app_main(void) {
+int main(void) {
     ESP_LOGI(TAG, "Starting ESP32-S3 GNSS demo using ESP32-S3-WROOM-1");
     if (init_peripherals() != ESP_OK) {
         ESP_LOGE(TAG, "Peripheral initialization failed");
-        return;
+        return -1;
     }
     if (lcd_demo_screen() != ESP_OK) {
         ESP_LOGE(TAG, "LCD demo failed");
-        return;
+        return -1;
     }
 
     if (capture_sensor_snapshot() != ESP_OK) {
         ESP_LOGE(TAG, "Sensor snapshot failed");
-        return;
+        return -1;
     }
 
     ESP_LOGI(TAG, "System initialized. Replace stubs with ESP-IDF drivers for hardware bring-up.");
+    return 0;
 }
