@@ -9,6 +9,8 @@
 
 static const char *TAG = "gps";
 static const uart_port_t GPS_UART_NUM = UART_NUM_1;
+static char nmea_buf[1024];
+static size_t nmea_len = 0;
 
 static esp_err_t ensure_uart_started(void) {
     static bool started = false;
@@ -21,6 +23,9 @@ static esp_err_t ensure_uart_started(void) {
 }
 
 static double parse_coordinate(const char *field, const char *direction) {
+    if (!field || field[0] == '\0' || !direction || direction[0] == '\0') {
+        return 0.0;
+    }
     double value = atof(field);
     double degrees = ((int)(value / 100));
     double minutes = value - degrees * 100;
@@ -29,6 +34,63 @@ static double parse_coordinate(const char *field, const char *direction) {
         decimal *= -1.0;
     }
     return decimal;
+}
+
+static size_t split_csv_inplace(char *line, const char **fields, size_t max_fields) {
+    size_t count = 0;
+    char *p = line;
+    while (p && count < max_fields) {
+        fields[count++] = p;
+        char *comma = strchr(p, ',');
+        if (!comma) {
+            break;
+        }
+        *comma = '\0';
+        p = comma + 1;
+    }
+    return count;
+}
+
+static char *find_gga_sentence(char *stream_start) {
+    char *cur = stream_start;
+    while (cur) {
+        char *dollar = strchr(cur, '$');
+        if (!dollar) {
+            break;
+        }
+        // talker (2 chars) + type; accept any talker that ends with GGA (e.g., GP, GN, BD, GA)
+        if (strlen(dollar) >= 6 && strncmp(dollar + 3, "GGA", 3) == 0) {
+            return dollar;
+        }
+        cur = dollar + 1;
+    }
+    return NULL;
+}
+
+static void log_nmea_lines(const uint8_t *raw, int len) {
+    if (!raw || len <= 0) {
+        return;
+    }
+    const char *cur = (const char *)raw;
+    const char *end = cur + len;
+    while (cur < end) {
+        const char *start = memchr(cur, '$', end - cur);
+        if (!start) {
+            break;
+        }
+        const char *line_end = memchr(start, '\n', end - start);
+        size_t line_len = line_end ? (size_t)(line_end - start) : (size_t)(end - start);
+        if (line_len > 0) {
+            if (line_len > 159) {
+                line_len = 159;
+            }
+            char line[160];
+            memcpy(line, start, line_len);
+            line[line_len] = '\0';
+            ESP_LOGI(TAG, "NMEA: %s", line);
+        }
+        cur = line_end ? line_end + 1 : end;
+    }
 }
 
 static esp_err_t configure_uart(void) {
@@ -66,6 +128,7 @@ esp_err_t gps_uart_enable_power(void) {
     ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_set_level(GPS_POWER_GPIO, 0));
     ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_set_level(GPS_UART_TX_GPIO, 0));
     ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_set_level(GPS_UART_RX_GPIO, 0));
+    vTaskDelay(pdMS_TO_TICKS(4000)); // Wait for GPS to power up
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_set_level(GPS_POWER_GPIO, 1));
 
@@ -87,25 +150,42 @@ esp_err_t gps_uart_read_sample(gps_fix_t *out_fix) {
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(ensure_uart_started());
 
-    uint8_t raw[256] = {0};
+    uint8_t raw[512] = {0};
     int len = uart_read_bytes(GPS_UART_NUM, raw, sizeof(raw) - 1, pdMS_TO_TICKS(500));
     if (len <= 0) {
         ESP_LOGW(TAG, "No NMEA data received from GPS");
         return ESP_FAIL;
     }
     raw[len] = '\0';
+    log_nmea_lines(raw, len);
 
-    char *gga = strstr((char *)raw, "$GPGGA");
-    if (!gga) {
-        gga = strstr((char *)raw, "$GNGGA");
+    // Append to rolling buffer and keep only the latest 1 KB
+    if ((size_t)len > sizeof(nmea_buf) - 1 - nmea_len) {
+        size_t drop = (size_t)len - (sizeof(nmea_buf) - 1 - nmea_len);
+        if (drop > nmea_len) {
+            drop = nmea_len;
+        }
+        memmove(nmea_buf, nmea_buf + drop, nmea_len - drop);
+        nmea_len -= drop;
     }
+    memcpy(nmea_buf + nmea_len, raw, len);
+    nmea_len += len;
+    nmea_buf[nmea_len] = '\0';
+
+    char *gga = find_gga_sentence(nmea_buf);
     if (!gga) {
-        ESP_LOGW(TAG, "No GGA sentence found in NMEA stream");
-        return ESP_FAIL;
+        // Keep buffered data for next read; avoid failing the app loop.
+        ESP_LOGW(TAG, "No GGA sentence found in NMEA stream (buffering for next read)");
+        return ESP_OK;
     }
 
     char *end = strchr(gga, '\n');
-    size_t line_len = end ? (size_t)(end - gga) : strlen(gga);
+    if (!end) {
+        // Incomplete line; keep buffering.
+        ESP_LOGW(TAG, "Partial GGA line received, waiting for completion");
+        return ESP_OK;
+    }
+    size_t line_len = (size_t)(end - gga);
     if (line_len >= 159) {
         line_len = 159;
     }
@@ -113,15 +193,15 @@ esp_err_t gps_uart_read_sample(gps_fix_t *out_fix) {
     char buffer[160];
     memcpy(buffer, gga, line_len);
     buffer[line_len] = '\0';
-
-    const char *fields[15] = {0};
-    size_t idx = 0;
-    char *token = strtok(buffer, ",");
-    while (token && idx < 15) {
-        fields[idx++] = token;
-        token = strtok(NULL, ",");
+    // Remove trailing CR if present to avoid contaminating last field.
+    char *cr = strchr(buffer, '\r');
+    if (cr) {
+        *cr = '\0';
     }
-    if (idx < 10) {
+
+    const char *fields[16] = {0};
+    size_t field_count = split_csv_inplace(buffer, fields, 16);
+    if (field_count < 10) {
         ESP_LOGE(TAG, "Incomplete NMEA sample");
         return ESP_FAIL;
     }
@@ -131,6 +211,18 @@ esp_err_t gps_uart_read_sample(gps_fix_t *out_fix) {
     out_fix->fix_quality = atoi(fields[6]);
     out_fix->satellites = atoi(fields[7]);
     out_fix->altitude_m = atof(fields[9]);
+
+    // Consume processed line from rolling buffer to avoid reprocessing
+    size_t consumed = (size_t)((end - nmea_buf) + 1);
+    if (consumed > 0 && consumed <= nmea_len) {
+        memmove(nmea_buf, nmea_buf + consumed, nmea_len - consumed);
+        nmea_len -= consumed;
+    }
+
+    if (out_fix->fix_quality == 0) {
+        ESP_LOGW(TAG, "No valid fix yet (quality=0)");
+        return ESP_FAIL;
+    }
 
     ESP_LOGI(TAG, "Parsed GPS fix: lat=%.6f lon=%.6f alt=%.1f m satellites=%d quality=%d",
              out_fix->latitude_deg, out_fix->longitude_deg, out_fix->altitude_m,
