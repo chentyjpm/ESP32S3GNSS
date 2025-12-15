@@ -212,13 +212,6 @@ esp_err_t gps_uart_read_sample(gps_fix_t *out_fix) {
     out_fix->satellites = atoi(fields[7]);
     out_fix->altitude_m = atof(fields[9]);
 
-    // Consume processed line from rolling buffer to avoid reprocessing
-    size_t consumed = (size_t)((end - nmea_buf) + 1);
-    if (consumed > 0 && consumed <= nmea_len) {
-        memmove(nmea_buf, nmea_buf + consumed, nmea_len - consumed);
-        nmea_len -= consumed;
-    }
-
     if (out_fix->fix_quality == 0) {
         ESP_LOGW(TAG, "No valid fix yet (quality=0)");
         return ESP_FAIL;
