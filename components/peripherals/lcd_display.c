@@ -175,7 +175,7 @@ esp_err_t lcd_show_status(const gps_fix_t *fix, const accel_sample_t *accel, con
 
     lv_obj_t *screen = lv_scr_act();
     lv_obj_clean(screen);
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x101820), 0);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0xFFFFFF), 0);
 
     lv_obj_t *title = lv_label_create(screen);
     lv_label_set_text(title, "ESP32-S3 GNSS Demo");
@@ -187,17 +187,17 @@ esp_err_t lcd_show_status(const gps_fix_t *fix, const accel_sample_t *accel, con
     lv_label_set_text_fmt(gps_label, "GNSS Fix:\nLat %.5f°\nLon %.5f°\nAlt: %.1fm Sats:%d Q:%d",
                           fix->latitude_deg, fix->longitude_deg, fix->altitude_m,
                           fix->satellites, fix->fix_quality);
-    lv_obj_align(gps_label, LV_ALIGN_LEFT_MID, 6, -56);
+    lv_obj_align(gps_label, LV_ALIGN_TOP_LEFT, 0, 24);
 
     lv_obj_t *acc_label = lv_label_create(screen);
     lv_label_set_text_fmt(acc_label, "ACC g:\nX:%+.2f Y:%+.2f Z:%+.2f\nPitch:%+.1f° Roll:%+.1f°",
                           accel->x_g, accel->y_g, accel->z_g, pitch_deg, roll_deg);
-    lv_obj_align(acc_label, LV_ALIGN_LEFT_MID, 6, 40);
+    lv_obj_align(acc_label, LV_ALIGN_TOP_LEFT, 0, 100);
 
     lv_obj_t *comp_label = lv_label_create(screen);
     lv_label_set_text_fmt(comp_label, "Compass uT:\nX:%+.1f Y:%+.1f Z:%+.1f\nHeading: %.1f° %s",
                           compass->x_ut, compass->y_ut, compass->z_ut, heading, cardinal);
-    lv_obj_align(comp_label, LV_ALIGN_RIGHT_MID, -6, 6);
+    lv_obj_align(comp_label, LV_ALIGN_TOP_LEFT, 0, 160);
 
     pump_lvgl(200);
     return ESP_OK;

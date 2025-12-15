@@ -31,7 +31,7 @@ static i2c_sensor_t qmc6309 = {
     .scl_gpio = QMC_I2C_SCL_GPIO,
     .sda_gpio = QMC_I2C_SDA_GPIO,
     .name = "QMC6309",
-    .address = 0x7C,
+    .address = 0xF8,
 };
 
 static esp_err_t ensure_bus(i2c_sensor_t *sensor) {

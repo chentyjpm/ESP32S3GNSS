@@ -33,7 +33,7 @@ static double parse_coordinate(const char *field, const char *direction) {
 
 static esp_err_t configure_uart(void) {
     uart_config_t uart_config = {
-        .baud_rate = 9600,
+        .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
