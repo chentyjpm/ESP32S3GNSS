@@ -31,7 +31,7 @@ static i2c_sensor_t qmc6309 = {
     .scl_gpio = QMC_I2C_SCL_GPIO,
     .sda_gpio = QMC_I2C_SDA_GPIO,
     .name = "QMC6309",
-    .address = 0x0D,
+    .address = 0x7C,
 };
 
 static esp_err_t ensure_bus(i2c_sensor_t *sensor) {
@@ -104,9 +104,10 @@ esp_err_t compass_init(void) {
     const uint8_t candidate_addresses[] = {0x0D};
     ESP_RETURN_ON_ERROR(ensure_device(&qmc6309, candidate_addresses, sizeof(candidate_addresses) / sizeof(candidate_addresses[0])), TAG, "I2C init failed");
     ESP_LOGI(TAG, "Initializing %s at address 0x%02X", qmc6309.name, qmc6309.address);
-    // Soft reset then continuous mode: OSR=512, RNG=2G, ODR=50Hz, continuous
-    ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x0B, 0x01), TAG, "QMC reset failed");
-    ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x09, 0x1D), TAG, "QMC config failed");
+    // Soft reset then continuous mode: OSR=8, LPF=16, MODE=11, continuous
+    ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x0A, 0x4F), TAG, "QMC config mode 11");
+    // SET RESET ON FULLSCALE 8 ODR 200
+    ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x0B, 0x48), TAG, "QMC config failed");
     vTaskDelay(pdMS_TO_TICKS(10));
     ESP_LOGI(TAG, "QMC6309 configured for continuous heading updates");
     return ESP_OK;
@@ -128,7 +129,8 @@ esp_err_t accelerometer_read(accel_sample_t *out_sample) {
     raw_y >>= 4;
     raw_z >>= 4;
 
-    const float lsb_g = 0.000061f; // 61 ug/LSB @ +/-2g
+    // In high-resolution mode (+/-2g, 0x23 = 0x88) sensitivity is 1 mg/LSB.
+    const float lsb_g = 0.001f;
     out_sample->x_g = raw_x * lsb_g;
     out_sample->y_g = raw_y * lsb_g;
     out_sample->z_g = raw_z * lsb_g;
@@ -142,7 +144,7 @@ esp_err_t compass_read(compass_sample_t *out_sample) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    uint8_t reg = 0x00;
+    uint8_t reg = 0x01;
     uint8_t data[6] = {0};
     ESP_RETURN_ON_ERROR(read_reg(&qmc6309, reg, data, sizeof(data)), TAG, "Compass read failed");
 

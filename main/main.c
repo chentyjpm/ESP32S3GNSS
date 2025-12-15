@@ -1,4 +1,6 @@
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "gps_uart.h"
 #include "i2c_sensors.h"
 #include "lcd_display.h"
@@ -26,10 +28,10 @@ static esp_err_t init_peripherals(void) {
         ESP_LOGE(TAG, "Accelerometer init failed");
         return ESP_FAIL;
     }
-    //if (compass_init() != ESP_OK) {
-    //    ESP_LOGE(TAG, "Compass init failed");
+    if (compass_init() != ESP_OK) {
+        ESP_LOGE(TAG, "Compass init failed");
     //    return ESP_FAIL;
-    //}
+    }
     return ESP_OK;
 }
 
@@ -46,10 +48,10 @@ static esp_err_t capture_sensor_snapshot(gps_fix_t *fix, accel_sample_t *accel, 
         ESP_LOGE(TAG, "Accelerometer sample failed");
         //return ESP_FAIL;
     }
-    //if (compass_read(compass) != ESP_OK) {
-    //    ESP_LOGE(TAG, "Compass sample failed");
+    if (compass_read(compass) != ESP_OK) {
+        ESP_LOGE(TAG, "Compass sample failed");
         //return ESP_FAIL;
-    //}
+    }
 
     ESP_LOGI(TAG, "Snapshot: lat=%.6f lon=%.6f alt=%.1f m sat=%d accel=[%.2f,%.2f,%.2f]g",
              fix->latitude_deg, fix->longitude_deg, fix->altitude_m, fix->satellites,
@@ -72,15 +74,24 @@ void app_main(void) {
     gps_fix_t fix = {0};
     accel_sample_t accel = {0};
     compass_sample_t compass = {0};
-    if (capture_sensor_snapshot(&fix, &accel, &compass) != ESP_OK) {
-        ESP_LOGE(TAG, "Sensor snapshot failed");
-        return;
+
+    while (1)
+    {
+        /* code */
+        if (capture_sensor_snapshot(&fix, &accel, &compass) != ESP_OK) {
+            ESP_LOGE(TAG, "Sensor snapshot failed");
+            return;
+        }
+
+        if (lcd_show_status(&fix, &accel, &compass) != ESP_OK) {
+            ESP_LOGE(TAG, "LCD demo failed");
+            return;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    if (lcd_show_status(&fix, &accel, &compass) != ESP_OK) {
-        ESP_LOGE(TAG, "LCD demo failed");
-        return;
-    }
+    
 
     ESP_LOGI(TAG, "System initialized. Replace stubs with ESP-IDF drivers for hardware bring-up.");
 }

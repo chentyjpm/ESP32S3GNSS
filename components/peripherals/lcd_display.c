@@ -11,6 +11,13 @@
 #include "freertos/task.h"
 #include "lcd_display.h"
 
+#ifndef LCD_OFFSET_X
+#define LCD_OFFSET_X 0
+#endif
+#ifndef LCD_OFFSET_Y
+#define LCD_OFFSET_Y 80   // Many 240x240 ST7789 modules map visible rows starting at RAM row 80
+#endif
+
 static const char *TAG = "lcd";
 static esp_lcd_panel_handle_t panel_handle;
 static lv_disp_draw_buf_t draw_buf;
@@ -22,12 +29,22 @@ static void lv_tick_cb(void *arg) {
     lv_tick_inc(2);
 }
 
+static bool lcd_color_trans_done_cb(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx) {
+    lv_disp_drv_t *drv = (lv_disp_drv_t *)user_ctx;
+    if (drv) {
+        lv_disp_flush_ready(drv);
+    }
+    return false;
+}
+
 static void lcd_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
     esp_lcd_panel_handle_t panel = (esp_lcd_panel_handle_t)disp->user_data;
-    if (panel) {
-        esp_lcd_panel_draw_bitmap(panel, area->x1, area->y1, area->x2 + 1, area->y2 + 1, color_p);
+    if (!panel) {
+        lv_disp_flush_ready(disp);
+        return;
     }
-    lv_disp_flush_ready(disp);
+    // Flush completion is signaled from lcd_color_trans_done_cb when DMA finishes.
+    esp_lcd_panel_draw_bitmap(panel, area->x1, area->y1, area->x2 + 1, area->y2 + 1, color_p);
 }
 
 static void pump_lvgl(uint32_t duration_ms) {
@@ -41,16 +58,7 @@ static void pump_lvgl(uint32_t duration_ms) {
 }
 
 esp_err_t lcd_power_on(void) {
-    gpio_config_t cfg = {
-        .pin_bit_mask = 1ULL << LCD_POWER_GPIO,
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_config(&cfg));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_set_level(LCD_POWER_GPIO, 1));
-    ESP_LOGI(TAG, "LCD power enabled on GPIO %d", LCD_POWER_GPIO);
+    ESP_LOGI(TAG, "LCD power enabled on GPIO");
     return ESP_OK;
 }
 
@@ -77,15 +85,16 @@ esp_err_t lcd_init(void) {
         .lcd_param_bits = 8,
         .spi_mode = 0,
         .trans_queue_depth = 10,
-        .on_color_trans_done = NULL,
-        .user_ctx = NULL,
+        .on_color_trans_done = lcd_color_trans_done_cb,
+        .user_ctx = &disp_drv,
     };
     esp_lcd_panel_io_handle_t io_handle = NULL;
     ESP_ERROR_CHECK_WITHOUT_ABORT(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &io_config, &io_handle));
 
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = LCD_SPI_RST_GPIO,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+        // Many ST7789 panels on ESP32-S3 kits are wired BGR; swap to get correct colors.
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
         .data_endian = LCD_RGB_DATA_ENDIAN_LITTLE,
         .bits_per_pixel = 16,
     };
@@ -94,7 +103,10 @@ esp_err_t lcd_init(void) {
     if (panel_handle) {
         esp_lcd_panel_reset(panel_handle);
         esp_lcd_panel_init(panel_handle);
+        esp_lcd_panel_set_gap(panel_handle, LCD_OFFSET_X, LCD_OFFSET_Y);
         esp_lcd_panel_mirror(panel_handle, false, true);
+        // Invert colors to match ST7789 default panel mode (avoids washed-out white screen).
+        esp_lcd_panel_invert_color(panel_handle, true);
         esp_lcd_panel_disp_on_off(panel_handle, true);
         ESP_LOGI(TAG, "ST7789 panel initialized over SPI");
     }

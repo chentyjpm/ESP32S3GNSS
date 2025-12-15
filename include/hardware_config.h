@@ -2,8 +2,8 @@
 #define HARDWARE_CONFIG_H
 
 // UART pins for GPS MC280M
-#define GPS_UART_TX_GPIO 18
-#define GPS_UART_RX_GPIO 17
+#define GPS_UART_TX_GPIO 17
+#define GPS_UART_RX_GPIO 18
 #define GPS_POWER_GPIO 41
 
 // SPI pins for LCD ST7789
@@ -12,7 +12,6 @@
 #define LCD_SPI_CS_GPIO 15
 #define LCD_SPI_DC_GPIO 7
 #define LCD_SPI_RST_GPIO 6
-#define LCD_POWER_GPIO 41
 
 // I2C for LIS3DHTR accelerometer
 #define ACC_I2C_SCL_GPIO 10

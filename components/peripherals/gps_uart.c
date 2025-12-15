@@ -57,7 +57,20 @@ esp_err_t gps_uart_enable_power(void) {
         .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_config(&cfg));
+    //set GPS tx rx low to avoid floating
+    cfg.pull_up_en = GPIO_PULLUP_DISABLE;
+    cfg.pull_down_en = GPIO_PULLUP_ENABLE;
+    cfg.pin_bit_mask = (1ULL << GPS_UART_TX_GPIO) | (1ULL << GPS_UART_RX_GPIO);
+    ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_config(&cfg));
+
+    ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_set_level(GPS_POWER_GPIO, 0));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_set_level(GPS_UART_TX_GPIO, 0));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_set_level(GPS_UART_RX_GPIO, 0));
+
     ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_set_level(GPS_POWER_GPIO, 1));
+
+    vTaskDelay(pdMS_TO_TICKS(1000)); // Wait for GPS to power up
+    
     ESP_LOGI(TAG, "GPS power enabled on GPIO %d", GPS_POWER_GPIO);
     return ESP_OK;
 }
