@@ -1,6 +1,6 @@
 # ESP32S3GNSS
 
-Standalone CMake project that documents the wiring and initialization sequence for an ESP32-S3-WROOM-1 board paired with GNSS, LCD, accelerometer, and compass peripherals. The code builds a host-side executable that mirrors the intended ESP-IDF initialization flow so it can be compiled and exercised inside this container.
+ESP-IDF project for ESP32-S3-WROOM-1 that wires a UART GNSS receiver (MC280M), an SPI LCD (ST7789 driven with LVGL), and two I2C sensors (LIS3DHTR accelerometer and QMC6309 compass).
 
 ## Hardware mapping
 
@@ -22,18 +22,21 @@ Standalone CMake project that documents the wiring and initialization sequence f
   - SDA: IO12
   - SCL: IO11
 
-## Building
+## Build (ESP-IDF)
 
-```bash
-cmake -S . -B build
-cmake --build build
-./build/esp32s3_gnss
-```
+1. Fetch and install the ESP-IDF toolchain for ESP32-S3 (once):
+   ```bash
+   git clone --depth 1 https://github.com/espressif/esp-idf.git
+   ./esp-idf/install.sh esp32s3
+   ```
+2. Export the environment for this shell:
+   ```bash
+   source ./esp-idf/export.sh
+   ```
+3. Configure the project target and build:
+   ```bash
+   idf.py set-target esp32s3
+   idf.py build
+   ```
 
-The resulting executable logs a full bring-up sequence and prints simulated readings:
-- GPS NMEA decode from an MC280M GPGGA sentence, including latitude/longitude, fix quality, and altitude.
-- LIS3DHTR acceleration vector representing a stationary board (~1g on Z).
-- QMC6309 magnetic field and derived heading.
-- Placeholder LVGL screen initialization for the ST7789 display.
-
-Use these outputs to sanity check wiring definitions before replacing the stub logic with ESP-IDF drivers on hardware.
+The `components/peripherals` component initializes GPIO, UART, SPI, and I2C for the mapped peripherals and now drives the LCD with an LVGL status screen that shows the latest GPS fix (latitude/longitude/altitude), compass heading with a cardinal direction, and accelerometer g-values plus computed pitch/roll tilt angles. Sensor reads come from live UART/I2C transactions so values should update as soon as the hardware is connected and powered.

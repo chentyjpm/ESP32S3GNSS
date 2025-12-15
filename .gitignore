@@ -1,1 +1,6 @@
 build/
+esp-idf/
+.espressif/
+managed_components/
+build.log
+sdkconfig.old

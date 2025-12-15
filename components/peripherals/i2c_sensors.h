@@ -24,8 +24,11 @@ typedef struct {
 esp_err_t accelerometer_init(void);
 esp_err_t accelerometer_read(accel_sample_t *out_sample);
 
+void accelerometer_tilt_deg(const accel_sample_t *accel, float *pitch_deg, float *roll_deg);
+
 esp_err_t compass_init(void);
 esp_err_t compass_read(compass_sample_t *out_sample);
+float compass_heading_deg(const compass_sample_t *compass);
 
 #ifdef __cplusplus
 }

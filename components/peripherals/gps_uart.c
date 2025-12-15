@@ -1,5 +1,7 @@
+#include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include "freertos/FreeRTOS.h"
 #include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_check.h"
@@ -7,6 +9,16 @@
 
 static const char *TAG = "gps";
 static const uart_port_t GPS_UART_NUM = UART_NUM_1;
+
+static esp_err_t ensure_uart_started(void) {
+    static bool started = false;
+    if (started) {
+        return ESP_OK;
+    }
+    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_driver_install(GPS_UART_NUM, 2048, 0, 0, NULL, 0));
+    started = true;
+    return ESP_OK;
+}
 
 static double parse_coordinate(const char *field, const char *direction) {
     double value = atof(field);
@@ -29,7 +41,7 @@ static esp_err_t configure_uart(void) {
         .source_clk = UART_SCLK_DEFAULT,
     };
 
-    ESP_ERROR_CHECK_WITHOUT_ABORT(uart_driver_install(GPS_UART_NUM, 2048, 0, 0, NULL, 0));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(ensure_uart_started());
     ESP_ERROR_CHECK_WITHOUT_ABORT(uart_param_config(GPS_UART_NUM, &uart_config));
     ESP_ERROR_CHECK_WITHOUT_ABORT(uart_set_pin(GPS_UART_NUM, GPS_UART_TX_GPIO, GPS_UART_RX_GPIO,
                                                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
@@ -60,11 +72,34 @@ esp_err_t gps_uart_read_sample(gps_fix_t *out_fix) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    const char *sample = "$GPGGA,053253.00,3723.2475,N,12158.3416,W,1,08,1.02,10.1,M,-34.0,M,,*76";
+    ESP_ERROR_CHECK_WITHOUT_ABORT(ensure_uart_started());
+
+    uint8_t raw[256] = {0};
+    int len = uart_read_bytes(GPS_UART_NUM, raw, sizeof(raw) - 1, pdMS_TO_TICKS(500));
+    if (len <= 0) {
+        ESP_LOGW(TAG, "No NMEA data received from GPS");
+        return ESP_FAIL;
+    }
+    raw[len] = '\0';
+
+    char *gga = strstr((char *)raw, "$GPGGA");
+    if (!gga) {
+        gga = strstr((char *)raw, "$GNGGA");
+    }
+    if (!gga) {
+        ESP_LOGW(TAG, "No GGA sentence found in NMEA stream");
+        return ESP_FAIL;
+    }
+
+    char *end = strchr(gga, '\n');
+    size_t line_len = end ? (size_t)(end - gga) : strlen(gga);
+    if (line_len >= 159) {
+        line_len = 159;
+    }
 
     char buffer[160];
-    strncpy(buffer, sample, sizeof(buffer));
-    buffer[sizeof(buffer) - 1] = '\0';
+    memcpy(buffer, gga, line_len);
+    buffer[line_len] = '\0';
 
     const char *fields[15] = {0};
     size_t idx = 0;
