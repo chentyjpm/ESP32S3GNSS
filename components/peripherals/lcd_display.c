@@ -14,8 +14,23 @@
 #ifndef LCD_OFFSET_X
 #define LCD_OFFSET_X 0
 #endif
+// Default to 0 so panels without an internal RAM offset show the full frame.
+// If your module really needs a shift (e.g., 240x240 on 240x320 glass), set LCD_OFFSET_Y to 80 in hardware_config.h.
 #ifndef LCD_OFFSET_Y
-#define LCD_OFFSET_Y 80   // Many 240x240 ST7789 modules map visible rows starting at RAM row 80
+#define LCD_OFFSET_Y 0
+#endif
+// Orientation and color options can be overridden in hardware_config.h
+#ifndef LCD_MIRROR_X
+#define LCD_MIRROR_X 0
+#endif
+#ifndef LCD_MIRROR_Y
+#define LCD_MIRROR_Y 0
+#endif
+#ifndef LCD_SWAP_XY
+#define LCD_SWAP_XY 0
+#endif
+#ifndef LCD_INVERT_COLOR
+#define LCD_INVERT_COLOR 0
 #endif
 
 static const char *TAG = "lcd";
@@ -104,11 +119,12 @@ esp_err_t lcd_init(void) {
         esp_lcd_panel_reset(panel_handle);
         esp_lcd_panel_init(panel_handle);
         esp_lcd_panel_set_gap(panel_handle, LCD_OFFSET_X, LCD_OFFSET_Y);
-        esp_lcd_panel_mirror(panel_handle, false, true);
-        // Invert colors to match ST7789 default panel mode (avoids washed-out white screen).
-        esp_lcd_panel_invert_color(panel_handle, true);
+        esp_lcd_panel_swap_xy(panel_handle, LCD_SWAP_XY);
+        esp_lcd_panel_mirror(panel_handle, LCD_MIRROR_X, LCD_MIRROR_Y);
+        esp_lcd_panel_invert_color(panel_handle, LCD_INVERT_COLOR);
         esp_lcd_panel_disp_on_off(panel_handle, true);
-        ESP_LOGI(TAG, "ST7789 panel initialized over SPI");
+        ESP_LOGI(TAG, "ST7789 init: offset=(%d,%d) mirror(x=%d,y=%d) swap_xy=%d invert=%d",
+                 LCD_OFFSET_X, LCD_OFFSET_Y, LCD_MIRROR_X, LCD_MIRROR_Y, LCD_SWAP_XY, LCD_INVERT_COLOR);
     }
 
     lv_init();
