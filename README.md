@@ -39,4 +39,9 @@ ESP-IDF project for ESP32-S3-WROOM-1 that wires a UART GNSS receiver (MC280M), a
    idf.py build
    ```
 
+   You can also run the helper script to perform the same build after exporting ESP-IDF:
+   ```bash
+   ./tools/build.sh
+   ```
+
 The `components/peripherals` component initializes GPIO, UART, SPI, and I2C for the mapped peripherals and now drives the LCD with an LVGL status screen that shows the latest GPS fix (latitude/longitude/altitude), compass heading with a cardinal direction, and accelerometer g-values plus computed pitch/roll tilt angles. Sensor reads come from live UART/I2C transactions so values should update as soon as the hardware is connected and powered.

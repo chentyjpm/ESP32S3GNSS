@@ -81,7 +81,7 @@ esp_err_t lcd_init(void) {
         .user_ctx = NULL,
     };
     esp_lcd_panel_io_handle_t io_handle = NULL;
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_lcd_new_panel_io_spi((spi_host_device_t)SPI2_HOST, &io_config, &io_handle));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &io_config, &io_handle));
 
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = LCD_SPI_RST_GPIO,

@@ -2,7 +2,6 @@
 #include <string.h>
 #include "driver/gpio.h"
 #include "driver/i2c.h"
-#include "driver/i2c_master.h"
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -35,6 +34,44 @@ static i2c_sensor_t qmc6309 = {
     .address = 0x0D,
 };
 
+static esp_err_t ensure_bus(i2c_sensor_t *sensor) {
+    if (bus_initialized[sensor->port]) {
+        return ESP_OK;
+    }
+
+    i2c_config_t cfg = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = sensor->sda_gpio,
+        .scl_io_num = sensor->scl_gpio,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = 100000,
+    };
+
+    ESP_RETURN_ON_ERROR(i2c_param_config(sensor->port, &cfg), TAG, "I2C param config failed");
+    ESP_RETURN_ON_ERROR(i2c_driver_install(sensor->port, cfg.mode, 0, 0, 0), TAG, "I2C driver install failed");
+    bus_initialized[sensor->port] = true;
+    ESP_LOGI(TAG, "I2C port %d configured SDA=%d SCL=%d", sensor->port, sensor->sda_gpio, sensor->scl_gpio);
+    return ESP_OK;
+}
+
+static esp_err_t ensure_device(i2c_sensor_t *sensor, const uint8_t *candidate_addresses, size_t num_candidates) {
+    ESP_RETURN_ON_ERROR(ensure_bus(sensor), TAG, "I2C bus init failed");
+
+    uint8_t tmp = 0;
+    for (size_t i = 0; i < num_candidates; ++i) {
+        sensor->address = candidate_addresses[i];
+        esp_err_t ping = i2c_master_write_read_device(sensor->port, sensor->address, &tmp, 0, &tmp, 1, pdMS_TO_TICKS(50));
+        if (ping == ESP_OK) {
+            ESP_LOGI(TAG, "%s detected at 0x%02X", sensor->name, sensor->address);
+            return ESP_OK;
+        }
+    }
+
+    ESP_LOGE(TAG, "%s not detected on I2C bus", sensor->name);
+    return ESP_FAIL;
+}
+
 static esp_err_t write_reg(const i2c_sensor_t *sensor, uint8_t reg, uint8_t value) {
     uint8_t buf[2] = {reg, value};
     return i2c_master_write_to_device(sensor->port, sensor->address, buf, sizeof(buf), pdMS_TO_TICKS(100));
@@ -44,44 +81,16 @@ static esp_err_t read_reg(const i2c_sensor_t *sensor, uint8_t reg, uint8_t *data
     return i2c_master_write_read_device(sensor->port, sensor->address, &reg, 1, data, len, pdMS_TO_TICKS(100));
 }
 
-static esp_err_t init_bus(const i2c_sensor_t *sensor) {
-    if (sensor->port >= I2C_NUM_MAX) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (bus_initialized[sensor->port]) {
-        return ESP_OK;
-    }
-
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = sensor->sda_gpio,
-        .scl_io_num = sensor->scl_gpio,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master = {
-            .clk_speed = 400000,
-        },
-        .clk_flags = I2C_SCLK_SRC_FLAG_FOR_NOMAL,
-    };
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(i2c_param_config(sensor->port, &conf));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(i2c_driver_install(sensor->port, conf.mode, 0, 0, 0));
-    bus_initialized[sensor->port] = true;
-    ESP_LOGI(TAG, "I2C port %d configured SDA=%d SCL=%d", sensor->port, sensor->sda_gpio, sensor->scl_gpio);
-    return ESP_OK;
-}
-
-static esp_err_t init_sensor(const i2c_sensor_t *sensor) {
-    esp_err_t err = init_bus(sensor);
-    if (err != ESP_OK) {
-        return err;
-    }
-    ESP_LOGI(TAG, "Initializing %s at address 0x%02X", sensor->name, sensor->address);
-    return ESP_OK;
-}
-
 esp_err_t accelerometer_init(void) {
-    ESP_RETURN_ON_ERROR(init_sensor(&lis3dhtr), TAG, "I2C init failed");
+    const uint8_t candidate_addresses[] = {0x18, 0x19};
+    ESP_RETURN_ON_ERROR(ensure_device(&lis3dhtr, candidate_addresses, sizeof(candidate_addresses) / sizeof(candidate_addresses[0])), TAG, "I2C init failed");
+    ESP_LOGI(TAG, "Initializing %s at address 0x%02X", lis3dhtr.name, lis3dhtr.address);
+
+    uint8_t who_am_i = 0;
+    ESP_RETURN_ON_ERROR(read_reg(&lis3dhtr, 0x0F, &who_am_i, 1), TAG, "WHO_AM_I read failed");
+    if (who_am_i != 0x33) {
+        ESP_LOGW(TAG, "Unexpected WHO_AM_I: 0x%02X (expected 0x33)", who_am_i);
+    }
     // 100 Hz, all axes enabled
     ESP_RETURN_ON_ERROR(write_reg(&lis3dhtr, 0x20, 0x57), TAG, "CTRL_REG1 write failed");
     // Block data update, +/-2g, high resolution
@@ -92,7 +101,9 @@ esp_err_t accelerometer_init(void) {
 }
 
 esp_err_t compass_init(void) {
-    ESP_RETURN_ON_ERROR(init_sensor(&qmc6309), TAG, "I2C init failed");
+    const uint8_t candidate_addresses[] = {0x0D};
+    ESP_RETURN_ON_ERROR(ensure_device(&qmc6309, candidate_addresses, sizeof(candidate_addresses) / sizeof(candidate_addresses[0])), TAG, "I2C init failed");
+    ESP_LOGI(TAG, "Initializing %s at address 0x%02X", qmc6309.name, qmc6309.address);
     // Soft reset then continuous mode: OSR=512, RNG=2G, ODR=50Hz, continuous
     ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x0B, 0x01), TAG, "QMC reset failed");
     ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x09, 0x1D), TAG, "QMC config failed");

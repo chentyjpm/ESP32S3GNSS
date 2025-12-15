@@ -2,7 +2,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 6.1.0
+    version: 5.1.4
   lvgl/lvgl:
     component_hash: d7c1ac037ae6e85d94897f807d6e7ba0946a83e720074fc95a4f6241da9f9f53
     dependencies: []
@@ -13,6 +13,6 @@ dependencies:
 direct_dependencies:
 - idf
 - lvgl/lvgl
-manifest_hash: 8473114012ca0bd4e523c1064f3940ce198de3f28ed78730421d80d91ca6c273
+manifest_hash: df20f261460de513f0a12afea5ee24ecdae69e960b57e68bdd2f682467fdbdde
 target: esp32s3
 version: 2.0.0

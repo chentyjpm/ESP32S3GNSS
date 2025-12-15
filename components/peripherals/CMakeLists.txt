@@ -1,5 +1,7 @@
 idf_component_register(
     SRCS "gps_uart.c" "i2c_sensors.c" "lcd_display.c"
     INCLUDE_DIRS "." "../../include"
-    REQUIRES driver esp_driver_uart esp_driver_i2c esp_driver_spi esp_driver_gpio esp_lcd lvgl
+    # Use the unified ESP-IDF v5.1 driver component to keep compatibility with
+    # the toolchain installed in this environment.
+    REQUIRES driver esp_lcd lvgl
 )
