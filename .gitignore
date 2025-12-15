@@ -4,3 +4,5 @@ esp-idf/
 managed_components/
 build.log
 sdkconfig.old
+sdkconfig
+dependencies.lock

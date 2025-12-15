@@ -26,10 +26,10 @@ static esp_err_t init_peripherals(void) {
         ESP_LOGE(TAG, "Accelerometer init failed");
         return ESP_FAIL;
     }
-    if (compass_init() != ESP_OK) {
-        ESP_LOGE(TAG, "Compass init failed");
-        return ESP_FAIL;
-    }
+    //if (compass_init() != ESP_OK) {
+    //    ESP_LOGE(TAG, "Compass init failed");
+    //    return ESP_FAIL;
+    //}
     return ESP_OK;
 }
 
@@ -40,16 +40,16 @@ static esp_err_t capture_sensor_snapshot(gps_fix_t *fix, accel_sample_t *accel, 
 
     if (gps_uart_read_sample(fix) != ESP_OK) {
         ESP_LOGE(TAG, "GPS sample read failed");
-        return ESP_FAIL;
+        //return ESP_FAIL;
     }
     if (accelerometer_read(accel) != ESP_OK) {
         ESP_LOGE(TAG, "Accelerometer sample failed");
-        return ESP_FAIL;
+        //return ESP_FAIL;
     }
-    if (compass_read(compass) != ESP_OK) {
-        ESP_LOGE(TAG, "Compass sample failed");
-        return ESP_FAIL;
-    }
+    //if (compass_read(compass) != ESP_OK) {
+    //    ESP_LOGE(TAG, "Compass sample failed");
+        //return ESP_FAIL;
+    //}
 
     ESP_LOGI(TAG, "Snapshot: lat=%.6f lon=%.6f alt=%.1f m sat=%d accel=[%.2f,%.2f,%.2f]g",
              fix->latitude_deg, fix->longitude_deg, fix->altitude_m, fix->satellites,
