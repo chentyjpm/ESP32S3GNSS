@@ -31,7 +31,7 @@ static i2c_sensor_t qmc6309 = {
     .scl_gpio = QMC_I2C_SCL_GPIO,
     .sda_gpio = QMC_I2C_SDA_GPIO,
     .name = "QMC6309",
-    .address = 0xF8,
+    .address = 0x7c,
 };
 
 static esp_err_t ensure_bus(i2c_sensor_t *sensor) {
@@ -101,14 +101,55 @@ esp_err_t accelerometer_init(void) {
 }
 
 esp_err_t compass_init(void) {
-    const uint8_t candidate_addresses[] = {0x0D};
-    ESP_RETURN_ON_ERROR(ensure_device(&qmc6309, candidate_addresses, sizeof(candidate_addresses) / sizeof(candidate_addresses[0])), TAG, "I2C init failed");
+    const uint8_t candidate_addresses[] = {0x0c, 0x1c, 0x2c, 0x3c, 0x4c, 0x5c, 0x6c, 0x7c};
+    ESP_RETURN_ON_ERROR(ensure_bus(&qmc6309), TAG, "I2C bus init failed");
+
+    uint8_t chip_id = 0x00;
+    bool found = false;
+    for (size_t i = 0; i < sizeof(candidate_addresses) / sizeof(candidate_addresses[0]); ++i) {
+        qmc6309.address = candidate_addresses[i];
+        if (read_reg(&qmc6309, 0x00, &chip_id, 1) == ESP_OK && chip_id == 0x90) {
+            found = true;
+            ESP_LOGI(TAG, "%s detected at 0x%02X (chip_id=0x%02X)", qmc6309.name, qmc6309.address, chip_id);
+            break;
+        }
+    }
+    if (!found) {
+        ESP_LOGE(TAG, "%s not detected on I2C bus (chip_id=0x%02X)", qmc6309.name, chip_id);
+        return ESP_FAIL;
+    }
+
     ESP_LOGI(TAG, "Initializing %s at address 0x%02X", qmc6309.name, qmc6309.address);
-    // Soft reset then continuous mode: OSR=8, LPF=16, MODE=11, continuous
-    ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x0A, 0x4F), TAG, "QMC config mode 11");
-    // SET RESET ON FULLSCALE 8 ODR 200
-    ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x0B, 0x48), TAG, "QMC config failed");
-    vTaskDelay(pdMS_TO_TICKS(10));
+    ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x0B, 0x80), TAG, "QMC soft reset");
+    ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x0B, 0x00), TAG, "QMC soft reset release");
+    vTaskDelay(pdMS_TO_TICKS(5));
+
+    uint8_t status = 0x00;
+    for (int i = 0; i < 5; ++i) {
+        if (read_reg(&qmc6309, 0x09, &status, 1) == ESP_OK && (status & 0x10)) {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+
+    if (qmc6309.address == 0x0c) {
+        uint8_t reg40 = 0x00;
+        if (read_reg(&qmc6309, 0x40, &reg40, 1) == ESP_OK) {
+            reg40 = (reg40 & 0xe0) | 0x0d;
+            write_reg(&qmc6309, 0x40, reg40);
+        }
+    }
+
+    const uint8_t mode_hpfm = 0x03;
+    const uint8_t osr1_8 = 0x00;
+    const uint8_t osr2_4 = 0x02;
+    const uint8_t zdbl_enb = (qmc6309.address == 0x0c) ? 0x00 : 0x01;
+    const uint8_t ctrl1 = (mode_hpfm) | (zdbl_enb << 2) | (osr1_8 << 3) | (osr2_4 << 5);
+    const uint8_t ctrl2 = 0x00; // set/reset on, 32G, ODR HPFM
+
+    ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x0B, ctrl2), TAG, "QMC config ctrl2 failed");
+    ESP_RETURN_ON_ERROR(write_reg(&qmc6309, 0x0A, ctrl1), TAG, "QMC config ctrl1 failed");
+    vTaskDelay(pdMS_TO_TICKS(2));
     ESP_LOGI(TAG, "QMC6309 configured for continuous heading updates");
     return ESP_OK;
 }
@@ -144,18 +185,31 @@ esp_err_t compass_read(compass_sample_t *out_sample) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    uint8_t reg = 0x01;
+    static compass_sample_t last_sample = {0};
+    uint8_t status = 0x00;
     uint8_t data[6] = {0};
-    ESP_RETURN_ON_ERROR(read_reg(&qmc6309, reg, data, sizeof(data)), TAG, "Compass read failed");
+    for (int i = 0; i < 5; ++i) {
+        if (read_reg(&qmc6309, 0x09, &status, 1) == ESP_OK && (status & 0x01)) {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    if (!(status & 0x01)) {
+        *out_sample = last_sample;
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(read_reg(&qmc6309, 0x01, data, sizeof(data)), TAG, "Compass read failed");
 
     int16_t raw_x = (int16_t)((data[1] << 8) | data[0]);
     int16_t raw_y = (int16_t)((data[3] << 8) | data[2]);
     int16_t raw_z = (int16_t)((data[5] << 8) | data[4]);
 
-    const float scale_ut = 0.1f; // approximate uT per LSB for 2G range
+    const float scale_ut = 0.1f; // 32G range -> 1000 LSB per 100 uT
     out_sample->x_ut = raw_x * scale_ut;
     out_sample->y_ut = raw_y * scale_ut;
     out_sample->z_ut = raw_z * scale_ut;
+    last_sample = *out_sample;
 
     const float pi = 3.14159265358979323846f;
     float heading = atan2f(out_sample->y_ut, out_sample->x_ut) * 180.0f / pi;
